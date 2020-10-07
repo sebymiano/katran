@@ -66,9 +66,10 @@ if [ -z "${SRC_DIR-}" ] ; then
 fi
 
 
-CLANG_PATH="${BUILD_DIR}/deps/clang/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04"
+#CLANG_PATH="${BUILD_DIR}/deps/clang/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04"
+CLANG_PATH=/usr/local
 if [ -f /etc/redhat-release ]; then
-  CLANG_PATH=/usr
+  CLANG_PATH=/usr/local
 fi
 
 rm -rf "${BUILD_DIR}/deps/bpfprog"

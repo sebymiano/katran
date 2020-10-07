@@ -20,7 +20,7 @@ set -xeo pipefail
 
 if [ -z "${KATRAN_INTERFACE}" ]
 then
-    KATRAN_INTERFACE=enp0s3
+    KATRAN_INTERFACE=enp101s0f0
 fi
 
 out=$(mount | grep bpffs) || true
