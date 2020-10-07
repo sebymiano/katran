@@ -142,11 +142,13 @@ static inline void connection_table_lookup(struct real_definition **real,
   __u32 key;
   dst_lru = bpf_map_lookup_elem(lru_map, &pckt->flow);
   if (!dst_lru) {
+    *real = NULL;
     return;
   }
   if (pckt->flow.proto == IPPROTO_UDP) {
     cur_time = bpf_ktime_get_ns();
     if (cur_time - dst_lru->atime > LRU_UDP_TIMEOUT) {
+      *real = NULL;
       return;
     }
     dst_lru->atime = cur_time;
@@ -154,9 +156,14 @@ static inline void connection_table_lookup(struct real_definition **real,
   key = dst_lru->pos;
   pckt->real_index = key;
 
-  if (pckt->real_index == 1) {
+  // char fmt[] = "Conntrack lookup: %u\n";
+  // bpf_trace_printk(fmt, sizeof(fmt), key);
+
+  if (pckt->real_index == 8) {
     (*real)->dst = 0x0101460a;
     (*real)->flags = 0;
+    // char fmt[] = "Hitting optimized path 2\n";
+    // bpf_trace_printk(fmt, sizeof(fmt));
   } else {
     *real = bpf_map_lookup_elem(&reals, &key);
   }
@@ -207,11 +214,18 @@ static inline int process_l3_headers(struct packet_description *pckt,
 __attribute__((__always_inline__))
 static inline int process_packet(void *data, __u64 off, void *data_end, struct xdp_md *xdp) {
 
+  // char fmt[] = "Processing packet\n";
+  // bpf_trace_printk(fmt, sizeof(fmt));
+  
   struct ctl_value *cval;
   struct real_definition dst_tmp;
+  dst_tmp.dst = 0;
+  dst_tmp.flags = 0;
+
   struct real_definition *dst = NULL;
   struct packet_description pckt = {};
   struct vip_definition vip = {};
+  struct vip_meta vip_info_tmp = {};
   struct vip_meta *vip_info;
   struct lb_stats *data_stats;
   __u64 iph_len;
@@ -224,6 +238,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end, struct x
   action = process_l3_headers(
     &pckt, &protocol, off, &pkt_bytes, data, data_end);
   if (action >= 0) {
+    char fmt1[] = "Return action\n";
+    bpf_trace_printk(fmt1, sizeof(fmt1));
     return action;
   }
   protocol = pckt.flow.proto;
@@ -233,15 +249,22 @@ static inline int process_packet(void *data, __u64 off, void *data_end, struct x
       return XDP_DROP;
     }
   } else {
+    char fmt1[] = "Return XDP_PASS\n";
+    bpf_trace_printk(fmt1, sizeof(fmt1));
     // send to tcp/ip stack
     return XDP_PASS;
   }
 
+  // char fmt3[] = "INFO: pckt.flow.dst = %u, pckt.dst = %u, proto = %u\n";
+  // bpf_trace_printk(fmt3, sizeof(fmt3), pckt.flow.dst, pckt.flow.port16[1], pckt.flow.proto);
+
   // Check packet port destination (i.e., 10.70.2.2 && 5678 le)
-  if (pckt.flow.dst == 0x0202460a && 
-    pckt.flow.port16[1] == 7856 && pckt.flow.proto == IPPROTO_UDP) {
+  if (pckt.flow.dst == 33703434 && pckt.flow.port16[1] == 11798 && pckt.flow.proto == IPPROTO_UDP) {
+    vip_info = &vip_info_tmp;
     vip_info->flags = 0;
-    vip_info->vip_num = 1;
+    vip_info->vip_num = 0;
+    // char fmt2[] = "Hitting optimized path 1\n";
+    // bpf_trace_printk(fmt2, sizeof(fmt2));
   } else {
     return XDP_PASS;
   }
@@ -283,11 +306,15 @@ static inline int process_packet(void *data, __u64 off, void *data_end, struct x
 
     if (!(pckt.flags & F_SYN_SET) &&
         !(vip_info->flags & F_LRU_BYPASS)) {
+      // char fmt3[] = "connection_table_lookup \n";
+      // bpf_trace_printk(fmt3, sizeof(fmt3));
       dst = &dst_tmp;
       connection_table_lookup(&dst, &pckt, lru_map);
     }
 
     if (!dst) {
+      // char fmt4[] = "get_packet_dst \n";
+      // bpf_trace_printk(fmt4, sizeof(fmt4));
       if(!get_packet_dst(&dst, &pckt, vip_info, lru_map)) {
         return XDP_DROP;
       }
@@ -342,7 +369,7 @@ int balancer_ingress(struct xdp_md *ctx) {
   eth_proto = eth->eth_proto;
 
   if (eth_proto == BE_ETH_P_IP) {
-    return process_packet(data, nh_off, data_end, false, ctx);
+    return process_packet(data, nh_off, data_end, ctx);
   } else {
     // pass to tcp/ip stack
     return XDP_PASS;
