@@ -78,6 +78,8 @@ static inline bool get_packet_dst(struct real_definition **real,
   under_flood = is_under_flood(&cur_time);
 
   #ifdef LPM_SRC_LOOKUP
+  char fmt[] = "Execute LPM_SRC_LOOKUP\n";
+  bpf_trace_printk(fmt, sizeof(fmt));
   if ((vip_info->flags & F_SRC_ROUTING) && !under_flood) {
     __u32 *lpm_val;
     if (is_ipv6) {
@@ -107,6 +109,8 @@ static inline bool get_packet_dst(struct real_definition **real,
   }
   #endif
   if (!src_found) {
+    char fmt[] = "Execute !src_found\n";
+    bpf_trace_printk(fmt, sizeof(fmt));
     bool hash_16bytes = is_ipv6;
 
     if (vip_info->flags & F_HASH_DPORT_ONLY) {
@@ -120,6 +124,8 @@ static inline bool get_packet_dst(struct real_definition **real,
     key = RING_SIZE * (vip_info->vip_num) + hash;
 
     real_pos = bpf_map_lookup_elem(&ch_rings, &key);
+    char fmt1[] = "Lookup on ch_rings map: key = %u, real_pos = %y\n";
+    bpf_trace_printk(fmt1, sizeof(fmt1), key, real_pos);
     if(!real_pos) {
       return false;
     }
@@ -136,6 +142,8 @@ static inline bool get_packet_dst(struct real_definition **real,
     }
     new_dst_lru.pos = key;
     bpf_map_update_elem(lru_map, &pckt->flow, &new_dst_lru, BPF_ANY);
+    char fmt[] = "Allocated new real_dst_lru\n";
+    bpf_trace_printk(fmt, sizeof(fmt));
   }
   return true;
 }
@@ -161,6 +169,9 @@ static inline void connection_table_lookup(struct real_definition **real,
   }
   key = dst_lru->pos;
   pckt->real_index = key;
+
+  char fmt[] = "Conntrack lookup: real_pos_lru = %u\n";
+  bpf_trace_printk(fmt, sizeof(fmt), dst_lru->pos);
   *real = bpf_map_lookup_elem(&reals, &key);
   return;
 }
@@ -425,6 +436,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
   protocol = pckt.flow.proto;
 
   #ifdef INLINE_DECAP_IPIP
+  char fmt[] = "Execute INLINE_DECAP_IPIP\n";
+  bpf_trace_printk(fmt, sizeof(fmt));
   if (protocol == IPPROTO_IPIP || protocol == IPPROTO_IPV6) {
     bool pass = true;
     action = check_decap_dst(&pckt, is_ipv6, &pass);
@@ -445,6 +458,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
       return XDP_DROP;
     }
   #ifdef INLINE_DECAP_GUE
+    char fmt[] = "Execute INLINE_DECAP_GUE\n";
+    bpf_trace_printk(fmt, sizeof(fmt));
     if (pckt.flow.port16[1] == bpf_htons(GUE_DPORT)) {
       bool pass = true;
       action = check_decap_dst(&pckt, is_ipv6, &pass);
@@ -481,6 +496,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
       pckt.flow.port16[1] = 0;
     }
   }
+  char fmt[] = "VIP INFO: vip->flags: %u, vip->vip_num: %u\n";
+  bpf_trace_printk(fmt, sizeof(fmt), vip_info->flags, vip_info->vip_num);
 
   if (data_end - data > MAX_PCKT_SIZE) {
     REPORT_PACKET_TOOBIG(xdp, data, data_end - data, false);
@@ -554,6 +571,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
     __u32 cpu_num = bpf_get_smp_processor_id();
     void *lru_map = bpf_map_lookup_elem(&lru_mapping, &cpu_num);
     if (!lru_map) {
+      char fmt[] = "Execute fallback_cache\n";
+      bpf_trace_printk(fmt, sizeof(fmt));
       lru_map = &fallback_cache;
       __u32 lru_stats_key = MAX_VIPS + FALLBACK_LRU_CNTR;
       struct lb_stats *lru_stats = bpf_map_lookup_elem(&stats, &lru_stats_key);
@@ -568,6 +587,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
 
     if (!(pckt.flags & F_SYN_SET) &&
         !(vip_info->flags & F_LRU_BYPASS)) {
+      char fmt[] = "Execute connection_table_lookup\n";
+      bpf_trace_printk(fmt, sizeof(fmt));
       connection_table_lookup(&dst, &pckt, lru_map);
     }
     if (!dst) {
