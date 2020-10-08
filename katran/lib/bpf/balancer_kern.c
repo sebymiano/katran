@@ -78,8 +78,8 @@ static inline bool get_packet_dst(struct real_definition **real,
   under_flood = is_under_flood(&cur_time);
 
   #ifdef LPM_SRC_LOOKUP
-  char fmt[] = "Execute LPM_SRC_LOOKUP\n";
-  bpf_trace_printk(fmt, sizeof(fmt));
+  char fmt5[] = "Execute LPM_SRC_LOOKUP\n";
+  bpf_trace_printk(fmt5, sizeof(fmt5));
   if ((vip_info->flags & F_SRC_ROUTING) && !under_flood) {
     __u32 *lpm_val;
     if (is_ipv6) {
@@ -436,8 +436,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
   protocol = pckt.flow.proto;
 
   #ifdef INLINE_DECAP_IPIP
-  char fmt[] = "Execute INLINE_DECAP_IPIP\n";
-  bpf_trace_printk(fmt, sizeof(fmt));
+  char fmt7[] = "Execute INLINE_DECAP_IPIP\n";
+  bpf_trace_printk(fmt7, sizeof(fmt7));
   if (protocol == IPPROTO_IPIP || protocol == IPPROTO_IPV6) {
     bool pass = true;
     action = check_decap_dst(&pckt, is_ipv6, &pass);
@@ -458,8 +458,8 @@ static inline int process_packet(void *data, __u64 off, void *data_end,
       return XDP_DROP;
     }
   #ifdef INLINE_DECAP_GUE
-    char fmt[] = "Execute INLINE_DECAP_GUE\n";
-    bpf_trace_printk(fmt, sizeof(fmt));
+    char fmt6[] = "Execute INLINE_DECAP_GUE\n";
+    bpf_trace_printk(fmt6, sizeof(fmt6));
     if (pckt.flow.port16[1] == bpf_htons(GUE_DPORT)) {
       bool pass = true;
       action = check_decap_dst(&pckt, is_ipv6, &pass);
