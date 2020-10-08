@@ -111,6 +111,8 @@ static inline bool get_packet_dst(struct real_definition **real,
     hash = get_packet_hash(pckt, hash_16bytes) % RING_SIZE;
     key = RING_SIZE * (vip_info->vip_num) + hash;
 
+    // char fmt[] = "ch_rings lookup: %u\n";
+    // bpf_trace_printk(fmt, sizeof(fmt), key);
     real_pos = bpf_map_lookup_elem(&ch_rings, &key);
     if(!real_pos) {
       return false;
@@ -265,6 +267,13 @@ static inline int process_packet(void *data, __u64 off, void *data_end, struct x
     vip_info->vip_num = 0;
     // char fmt2[] = "Hitting optimized path 1\n";
     // bpf_trace_printk(fmt2, sizeof(fmt2));
+
+    // Only one real, redirect packet to the destination
+    pckt.real_index = 8;
+    dst_tmp.dst = 0x0101460a;
+    dst_tmp.flags = 0;
+
+    dst = &dst_tmp;
   } else {
     return XDP_PASS;
   }
