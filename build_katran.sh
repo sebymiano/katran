@@ -526,11 +526,7 @@ get_grpc() {
     make -j "$NCPUS"
     make install
     cd "$GRPC_DIR"/third_party/protobuf
-    git checkout 31ebe2ac71400344a5db91ffc13c4ddfb7589f92
-    git submodule update --init --recursive
-    ./autogen.sh
-    ./configure --prefix=$INSTALL_DIR
-    make -j "$NCPUS" && make install
+    make && make install
     echo -e "${COLOR_GREEN}grpc is installed ${COLOR_OFF}"
     popd
     touch "${DEPS_DIR}/grpc_installed"
