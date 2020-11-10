@@ -297,6 +297,10 @@ int BpfAdapter::getProgFdByName(const std::string& name) {
   return loader_.getProgFdByName(name);
 }
 
+bool BpfAdapter::isMapInProg(const std::string& progName, const std::string& name) {
+  return loader_.isMapInProg(progName, name);
+}
+
 int BpfAdapter::updateSharedMap(const std::string& name, int fd) {
   return loader_.updateSharedMap(name, fd);
 }

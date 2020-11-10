@@ -192,7 +192,8 @@ void KatranLb::initialSanityChecking() {
     res = getKatranProgFd();
     if (res < 0) {
       throw std::invalid_argument(folly::sformat(
-          "can't get fd for prog: xdp-balancer, error: {}",
+          "can't get fd for prog: {}, error: {}",
+          kBalancerProgName,
           folly::errnoStr(errno)));
     }
   }
@@ -201,7 +202,7 @@ void KatranLb::initialSanityChecking() {
     res = getHealthcheckerProgFd();
     if (res < 0) {
       throw std::invalid_argument(folly::sformat(
-          "can't get fd for prog: cls-hc, error: {}", folly::errnoStr(errno)));
+          "can't get fd for prog: {}, error: {}", kHealthcheckerProgName, folly::errnoStr(errno)));
     }
     maps.push_back("hc_ctrl_map");
     maps.push_back("hc_reals_map");
@@ -433,31 +434,35 @@ void KatranLb::enableRecirculation() {
 }
 
 void KatranLb::featureDiscovering() {
-  int res;
-  res = bpfAdapter_.getMapFdByName("lpm_src_v4");
-  if (res >= 0) {
+  if (bpfAdapter_.isMapInProg(kBalancerProgName.toString(), "lpm_src_v4")) {
     VLOG(2) << "source based routing is supported";
     features_.srcRouting = true;
+  } else {
+    features_.srcRouting = false;
   }
-  res = bpfAdapter_.getMapFdByName("decap_dst");
-  if (res >= 0) {
+  if (bpfAdapter_.isMapInProg(kBalancerProgName.toString(), "decap_dst")) {
     VLOG(2) << "inline decapsulation is supported";
     features_.inlineDecap = true;
+  } else {
+    features_.inlineDecap = false;
   }
-  res = bpfAdapter_.getMapFdByName("event_pipe");
-  if (res >= 0) {
+  if (bpfAdapter_.isMapInProg(kBalancerProgName.toString(), "event_pipe")) {
     VLOG(2) << "katran introspection is enabled";
     features_.introspection = true;
+  } else {
+    features_.introspection = false;
   }
-  res = bpfAdapter_.getMapFdByName("pckt_srcs");
-  if (res >= 0) {
+  if (bpfAdapter_.isMapInProg(kBalancerProgName.toString(), "pckt_srcs")) {
     VLOG(2) << "GUE encapsulation is enabled";
     features_.gueEncap = true;
+  } else {
+    features_.gueEncap = false;
   }
-  res = bpfAdapter_.getMapFdByName("hc_pckt_srcs_map");
-  if (res >= 0) {
+  if (bpfAdapter_.isMapInProg(kHealthcheckerProgName.toString(), "hc_pckt_srcs_map")) {
     VLOG(2) << "Direct healthchecking is enabled";
     features_.directHealthchecking = true;
+  } else {
+    features_.directHealthchecking = false;
   }
 }
 
@@ -593,7 +598,7 @@ void KatranLb::attachBpfProgs() {
     throw std::invalid_argument("failed to attach bpf prog: prog not loaded");
   }
   int res;
-  auto main_fd = bpfAdapter_.getProgFdByName("xdp-balancer");
+  auto main_fd = bpfAdapter_.getProgFdByName(kBalancerProgName.toString());
   auto interface_index = ctlValues_[kMainIntfPos].ifindex;
   if (standalone_) {
     // attaching main bpf prog in standalone mode
@@ -1218,7 +1223,7 @@ bool KatranLb::stopKatranMonitor() {
     return false;
   }
 
-  if (!features_.introspection) {
+  if (!monitor_) {
     return false;
   }
   if (!changeKatranMonitorForwardingState(KatranMonitorState::DISABLED)) {
@@ -1230,7 +1235,7 @@ bool KatranLb::stopKatranMonitor() {
 
 std::unique_ptr<folly::IOBuf> KatranLb::getKatranMonitorEventBuffer(
     EventId event) {
-  if (!features_.introspection || config_.disableForwarding) {
+  if (config_.disableForwarding || !monitor_) {
     return nullptr;
   }
   return monitor_->getEventBuffer(event);
@@ -1239,7 +1244,7 @@ std::unique_ptr<folly::IOBuf> KatranLb::getKatranMonitorEventBuffer(
 bool KatranLb::restartKatranMonitor(
     uint32_t limit,
     folly::Optional<PcapStorageFormat> storage) {
-  if (!features_.introspection || config_.disableForwarding) {
+  if (config_.disableForwarding || !monitor_) {
     return false;
   }
   if (!changeKatranMonitorForwardingState(KatranMonitorState::ENABLED)) {
@@ -1251,7 +1256,7 @@ bool KatranLb::restartKatranMonitor(
 
 KatranMonitorStats KatranLb::getKatranMonitorStats() {
   struct KatranMonitorStats stats;
-  if (!features_.introspection || config_.disableForwarding) {
+  if (config_.disableForwarding || !monitor_) {
     return stats;
   }
   auto writer_stats = monitor_->getWriterStats();
@@ -1813,6 +1818,73 @@ uint32_t KatranLb::increaseRefCountForReal(const folly::IPAddress& real) {
     }
     return rnum;
   }
+}
+
+bool KatranLb::hasFeature(KatranFeatureEnum feature) {
+  switch (feature) {
+    case KatranFeatureEnum::DirectHealthchecking:
+      return features_.directHealthchecking;
+    case KatranFeatureEnum::GueEncap:
+      return features_.gueEncap;
+    case KatranFeatureEnum::InlineDecap:
+      return features_.inlineDecap;
+    case KatranFeatureEnum::Introspection:
+      return features_.introspection;
+    case KatranFeatureEnum::SrcRouting:
+      return features_.srcRouting;
+  }
+  folly::assume_unreachable();
+}
+
+bool KatranLb::installFeature(
+    KatranFeatureEnum feature,
+    const std::string& prog_path) {
+  if (hasFeature(feature)) {
+    LOG(INFO) << "already have requested feature";
+    return true;
+  }
+  if (prog_path.empty()) {
+    LOG(ERROR) << "failed to install feature: prog_path is empty";
+    return false;
+  }
+  auto original_balancer_prog = config_.balancerProgPath;
+  if (!reloadBalancerProg(prog_path)) {
+    LOG(ERROR) << "failed to install feature: reloading prog failed";
+
+    if (!reloadBalancerProg(original_balancer_prog)) {
+      LOG(ERROR) << "failed to reload original balancer prog";
+    }
+    return false;
+  }
+  if (!config_.testing) {
+    attachBpfProgs();
+  }
+  return hasFeature(feature);
+}
+
+bool KatranLb::removeFeature(
+    KatranFeatureEnum feature,
+    const std::string& prog_path) {
+  if (!hasFeature(feature)) {
+    return true;
+  }
+  if (prog_path.empty()) {
+    return false;
+  }
+  auto original_balancer_prog = config_.balancerProgPath;
+  if (!reloadBalancerProg(prog_path)) {
+    LOG(ERROR) << "provided prog does not have wanted feature, "
+               << "reverting by reloading original balancer prog";
+
+    if (!reloadBalancerProg(original_balancer_prog)) {
+      LOG(ERROR) << "failed to reload original balancer prog";
+    }
+    return false;
+  }
+  if (!config_.testing) {
+    attachBpfProgs();
+  }
+  return !hasFeature(feature);
 }
 
 } // namespace katran

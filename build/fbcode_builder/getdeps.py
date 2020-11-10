@@ -207,8 +207,8 @@ class ProjectCmdBase(SubCmd):
 
 
 class CachedProject(object):
-    """ A helper that allows calling the cache logic for a project
-    from both the build and the fetch code """
+    """A helper that allows calling the cache logic for a project
+    from both the build and the fetch code"""
 
     def __init__(self, cache, loader, m):
         self.m = m
@@ -982,6 +982,11 @@ def parse_args():
         help="Allow satisfying third party deps from installed system packages",
         action="store_true",
         default=False,
+    )
+    add_common_arg(
+        "--lfs-path",
+        help="Provide a parent directory for lfs when fbsource is unavailable",
+        default=None,
     )
 
     ap = argparse.ArgumentParser(

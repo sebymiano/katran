@@ -103,17 +103,17 @@ class BuilderBase(object):
     def run_tests(
         self, install_dirs, schedule_type, owner, test_filter, retry, no_testpilot
     ):
-        """ Execute any tests that we know how to run.  If they fail,
-        raise an exception. """
+        """Execute any tests that we know how to run.  If they fail,
+        raise an exception."""
         pass
 
     def _build(self, install_dirs, reconfigure):
-        """ Perform the build.
+        """Perform the build.
         install_dirs contains the list of installation directories for
         the dependencies of this project.
         reconfigure will be set to true if the fetcher determined
         that the sources have changed in such a way that the build
-        system needs to regenerate its rules. """
+        system needs to regenerate its rules."""
         pass
 
     def _compute_env(self, install_dirs):
@@ -145,27 +145,44 @@ class MakeBuilder(BuilderBase):
         inst_dir,
         build_args,
         install_args,
+        test_args,
     ):
         super(MakeBuilder, self).__init__(
             build_opts, ctx, manifest, src_dir, build_dir, inst_dir
         )
         self.build_args = build_args or []
         self.install_args = install_args or []
+        self.test_args = test_args
+
+    def _get_prefix(self):
+        return ["PREFIX=" + self.inst_dir, "prefix=" + self.inst_dir]
 
     def _build(self, install_dirs, reconfigure):
         env = self._compute_env(install_dirs)
 
         # Need to ensure that PREFIX is set prior to install because
-        # libbpf uses it when generating its pkg-config file
+        # libbpf uses it when generating its pkg-config file.
+        # The lowercase prefix is used by some projects.
         cmd = (
             ["make", "-j%s" % self.build_opts.num_jobs]
             + self.build_args
-            + ["PREFIX=" + self.inst_dir]
+            + self._get_prefix()
         )
         self._run_cmd(cmd, env=env)
 
-        install_cmd = ["make"] + self.install_args + ["PREFIX=" + self.inst_dir]
+        install_cmd = ["make"] + self.install_args + self._get_prefix()
         self._run_cmd(install_cmd, env=env)
+
+    def run_tests(
+        self, install_dirs, schedule_type, owner, test_filter, retry, no_testpilot
+    ):
+        if not self.test_args:
+            return
+
+        env = self._compute_env(install_dirs)
+
+        cmd = ["make"] + self.test_args + self._get_prefix()
+        self._run_cmd(cmd, env=env)
 
 
 class AutoconfBuilder(BuilderBase):
@@ -570,7 +587,7 @@ if __name__ == "__main__":
         use_cmd_prefix = False
 
         def get_property(test, propname, defval=None):
-            """ extracts a named property from a cmake test info json blob.
+            """extracts a named property from a cmake test info json blob.
             The properties look like:
             [{"name": "WORKING_DIRECTORY"},
              {"value": "something"}]
@@ -1264,7 +1281,13 @@ incremental = false
                     continue  # filter out commented lines and ones without git deps
                 for name, conf in dep_to_git.items():
                     if 'git = "{}"'.format(conf["repo_url"]) in line:
-                        crate_name, _, _ = line.partition("=")
+                        pkg_template = ' package = "'
+                        if pkg_template in line:
+                            crate_name, _, _ = line.partition(pkg_template)[
+                                2
+                            ].partition('"')
+                        else:
+                            crate_name, _, _ = line.partition("=")
                         deps_to_crates.setdefault(name, set()).add(crate_name.strip())
         return deps_to_crates
 

@@ -67,9 +67,9 @@ fi
 
 
 #CLANG_PATH="${BUILD_DIR}/deps/clang/clang+llvm-8.0.0-x86_64-linux-gnu-ubuntu-18.04"
-CLANG_PATH=/usr/local
+CLANG_PATH=/usr
 if [ -f /etc/redhat-release ]; then
-  CLANG_PATH=/usr/local
+  CLANG_PATH=/usr
 fi
 
 rm -rf "${BUILD_DIR}/deps/bpfprog"

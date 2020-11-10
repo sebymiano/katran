@@ -79,6 +79,11 @@ enum class KatranMonitorState {
   ENABLED,
 };
 
+/**
+ * Prog names
+ */
+constexpr folly::StringPiece kBalancerProgName = "xdp-balancer";
+constexpr folly::StringPiece kHealthcheckerProgName = "cls-hc";
 } // namespace
 
 /**
@@ -106,7 +111,9 @@ class KatranLb {
    * helper function to reload balancer program in runtime
    * could throw std::invalid_argument if reload fails.
    */
-  bool reloadBalancerProg(const std::string& path, folly::Optional<KatranConfig> config = folly::none);
+  bool reloadBalancerProg(
+      const std::string& path,
+      folly::Optional<KatranConfig> config = folly::none);
 
   /**
    * helper function to attach bpf program (e.g. to rootlet array,
@@ -432,7 +439,7 @@ class KatranLb {
    */
   lb_stats getQuicRoutingStats();
 
-   /**
+  /**
    * @return struct lb_stats w/ statistic of QUIC CID versions stats
    *
    * helper function which returns how many QUIC packets were routed
@@ -510,7 +517,7 @@ class KatranLb {
    * helper function to get fd of katran bpf program
    */
   int getKatranProgFd() {
-    return bpfAdapter_.getProgFdByName("xdp-balancer");
+    return bpfAdapter_.getProgFdByName(kBalancerProgName.toString());
   }
 
   /**
@@ -518,7 +525,7 @@ class KatranLb {
    * helper function to get fd of healthchecker bpf program
    */
   int getHealthcheckerProgFd() {
-    return bpfAdapter_.getProgFdByName("cls-hc");
+    return bpfAdapter_.getProgFdByName(kHealthcheckerProgName.toString());
   }
 
   /**
@@ -611,6 +618,38 @@ class KatranLb {
   std::shared_ptr<KatranMonitor> getKatranMonitor() {
     return monitor_;
   }
+
+  /**
+   * Return if katran has certain feature
+   */
+  bool hasFeature(KatranFeatureEnum feature);
+
+  /**
+   * @param feature The feature requested to have
+   * @param prog_path The prog to reload if the lb doesn't have the feature
+   * @return true if the lb already has the feature, or obtained after
+   * reloading, otherwise false
+   *
+   * Ask katran lb to install a certain feature. Lb might have to reload the
+   * provided prog path if it's not available currently.
+   */
+  bool installFeature(
+      KatranFeatureEnum feature,
+      const std::string& prog_path = "");
+
+  /**
+   * @param feature The feature requested to not have
+   * @param prog_path The prog to reload if the lb has the feature
+   * @return true if the lb already doesn't have the feature, or lost after
+   * reloading, otherwise false
+   *
+   * The opposite of instalFeature. Ask katran lb to remove a certain feature.
+   * Lb might have to reload the provided prog path if it's present in the
+   * current prog.
+   */
+  bool removeFeature(
+      KatranFeatureEnum feature,
+      const std::string& prog_path = "");
 
  private:
   /**
@@ -766,7 +805,7 @@ class KatranLb {
   /**
    * implements all introspection related routines
    */
-  std::shared_ptr<KatranMonitor> monitor_;
+  std::shared_ptr<KatranMonitor> monitor_{nullptr};
 
   /**
    * vector of unused possitions for vips and reals. for each element
